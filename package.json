@@ -1,0 +1,12 @@
+{
+  "name": "splitwise",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
+    "start": "node backend/src/index.js",
+    "dev": "./start.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
