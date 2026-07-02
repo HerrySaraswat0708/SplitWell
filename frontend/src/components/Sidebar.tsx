@@ -22,7 +22,7 @@ export default function Sidebar() {
             <Receipt size={20} />
           </div>
           <div>
-            <h1 className="font-bold text-lg leading-none">SplitWise</h1>
+            <h1 className="font-bold text-lg leading-none">Splitwell</h1>
             <p className="text-xs text-slate-400 mt-0.5">Split expenses easily</p>
           </div>
         </div>

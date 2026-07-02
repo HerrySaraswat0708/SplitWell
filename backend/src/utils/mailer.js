@@ -66,14 +66,14 @@ function emailHtml(name, verifyUrl) {
 <div class="wrap">
   <div style="text-align:center"><div class="icon">💸</div></div>
   <h1>Verify your email</h1>
-  <p class="sub">Hi ${name}, welcome to SplitWise!<br>Click below to confirm your email address.</p>
+  <p class="sub">Hi ${name}, welcome to Splitwell!<br>Click below to confirm your email address.</p>
   <a href="${verifyUrl}" class="btn">✓ Verify Email Address</a>
   <p style="color:#94a3b8;font-size:13px;text-align:center;margin-bottom:8px">Or copy this link:</p>
   <div class="link-box"><a href="${verifyUrl}" style="color:#6366f1">${verifyUrl}</a></div>
   <p style="color:#94a3b8;font-size:12px;text-align:center;margin-top:16px">
     Link expires in 24 hours. If you didn't sign up, you can safely ignore this email.
   </p>
-  <div class="foot">SplitWise — Split expenses with friends</div>
+  <div class="foot">Splitwell — Split expenses with friends</div>
 </div>
 </body></html>`;
 }
@@ -94,14 +94,14 @@ async function sendVerificationEmail(user, token) {
     return;
   }
 
-  const from = process.env.SMTP_FROM || `SplitWise <${process.env.SMTP_USER}>`;
+  const from = process.env.SMTP_FROM || `Splitwell <${process.env.SMTP_USER}>`;
 
   const info = await transport.sendMail({
     from,
     to: user.email,
-    subject: 'Verify your SplitWise account',
+    subject: 'Verify your Splitwell account',
     html: emailHtml(user.name, verifyUrl),
-    text: `Hi ${user.name},\n\nVerify your SplitWise account:\n${verifyUrl}\n\nLink expires in 24 hours.`,
+    text: `Hi ${user.name},\n\nVerify your Splitwell account:\n${verifyUrl}\n\nLink expires in 24 hours.`,
   });
 
   console.log(`📧 Verification email sent to ${user.email}`);

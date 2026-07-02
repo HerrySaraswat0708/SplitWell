@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
 
-echo "🚀 Starting SplitWise..."
+echo "🚀 Starting Splitwell..."
 
 # Check Node.js
 if ! command -v node &> /dev/null; then

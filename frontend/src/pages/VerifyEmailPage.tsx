@@ -1,34 +1,30 @@
-import { useEffect, useState } from 'react';
-import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { CheckCircle, XCircle, Loader2, Receipt } from 'lucide-react';
+import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { CheckCircle, XCircle, Loader2, Receipt, MailCheck } from 'lucide-react';
 import { authApi } from '../api';
-import { useAuthStore } from '../store/authStore';
 
-type Status = 'loading' | 'success' | 'error';
+type Status = 'idle' | 'loading' | 'success' | 'error';
 
 export default function VerifyEmailPage() {
   const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const { setAuth } = useAuthStore();
-  const [status, setStatus] = useState<Status>('loading');
-  const [message, setMessage] = useState('');
+  const token = params.get('token');
+  const [status, setStatus] = useState<Status>(token ? 'idle' : 'error');
+  const [message, setMessage] = useState(token ? '' : 'No verification token found in the link.');
 
-  useEffect(() => {
-    const token = params.get('token');
-    if (!token) { setStatus('error'); setMessage('No verification token found in the link.'); return; }
+  const verify = () => {
+    if (!token) return;
+    setStatus('loading');
 
     authApi.verifyEmail(token)
-      .then(({ token: jwt, user, message: msg }) => {
-        setAuth(user, jwt);          // update stored session with verified user
+      .then(({ message: msg }) => {
         setStatus('success');
         setMessage(msg || 'Email verified!');
-        setTimeout(() => navigate('/'), 3000);
       })
       .catch((e: any) => {
         setStatus('error');
         setMessage(e || 'Verification failed. The link may have expired.');
       });
-  }, []);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
@@ -42,6 +38,15 @@ export default function VerifyEmailPage() {
         </div>
 
         <div className="card p-10 shadow-xl text-center">
+          {status === 'idle' && (
+            <>
+              <MailCheck size={48} className="text-indigo-500 mx-auto mb-4" />
+              <h2 className="text-xl font-bold text-slate-900">Confirm your email</h2>
+              <p className="text-slate-500 mt-2">Tap the button below to verify this address for Splitwell.</p>
+              <button onClick={verify} className="btn-primary inline-block mt-6">Verify Email Address</button>
+            </>
+          )}
+
           {status === 'loading' && (
             <>
               <Loader2 size={48} className="text-indigo-500 animate-spin mx-auto mb-4" />
@@ -55,8 +60,7 @@ export default function VerifyEmailPage() {
               <CheckCircle size={56} className="text-emerald-500 mx-auto mb-4" />
               <h2 className="text-xl font-bold text-slate-900">Email verified!</h2>
               <p className="text-slate-500 mt-2">{message}</p>
-              <p className="text-sm text-slate-400 mt-4">Redirecting you to the dashboard…</p>
-              <Link to="/" className="btn-primary inline-block mt-4">Go to Dashboard</Link>
+              <p className="text-sm text-slate-400 mt-4">You're all set — you can close this tab now and go back to Splitwell.</p>
             </>
           )}
 
@@ -65,10 +69,6 @@ export default function VerifyEmailPage() {
               <XCircle size={56} className="text-red-400 mx-auto mb-4" />
               <h2 className="text-xl font-bold text-slate-900">Verification failed</h2>
               <p className="text-slate-500 mt-2">{message}</p>
-              <div className="flex gap-3 justify-center mt-6">
-                <Link to="/" className="btn-secondary">Go to Dashboard</Link>
-                <Link to="/login" className="btn-primary">Sign in</Link>
-              </div>
             </>
           )}
         </div>

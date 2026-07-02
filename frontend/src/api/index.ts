@@ -28,6 +28,10 @@ export const groupsApi = {
     client.post<Group>('/groups', data).then(r => r.data),
   addMember: (groupId: number, email: string) =>
     client.post(`/groups/${groupId}/members`, { email }).then(r => r.data),
+  removeMember: (groupId: number, userId: number) =>
+    client.delete(`/groups/${groupId}/members/${userId}`).then(r => r.data),
+  leave: (groupId: number) =>
+    client.delete(`/groups/${groupId}/leave`).then(r => r.data),
   balances: (id: number) => client.get<GroupBalances>(`/groups/${id}/balances`).then(r => r.data),
   delete: (id: number) => client.delete(`/groups/${id}`).then(r => r.data),
 };

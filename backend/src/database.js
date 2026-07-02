@@ -6,7 +6,7 @@ const fs = require('fs');
 const dataDir = process.env.DATA_DIR || path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'splitwise.db'));
+const db = new Database(path.join(dataDir, 'splitwell.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 

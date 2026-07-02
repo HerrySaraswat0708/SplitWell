@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: splitwise
+    name: splitwell
     env: node
     region: singapore
     plan: free
@@ -14,7 +14,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URL
-        value: https://splitwise.onrender.com   # Render replaces this with real URL
+        value: https://splitwell.onrender.com   # Render replaces this with real URL
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
@@ -26,8 +26,8 @@ services:
       - key: SMTP_PASS
         sync: false           # you will paste the app password in Render dashboard
       - key: SMTP_FROM
-        value: "SplitWise <saraswatherry@gmail.com>"
+        value: "Splitwell <saraswatherry+noreply@gmail.com>"
     disk:
-      name: splitwise-data
+      name: splitwell-data
       mountPath: /data
       sizeGB: 1

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, HandCoins, UserPlus, Trash2, ArrowRight } from 'lucide-react';
+import { ArrowLeft, Plus, HandCoins, UserPlus, Trash2, ArrowRight, LogOut, Skull, UserX } from 'lucide-react';
 import { groupsApi, expensesApi, settlementsApi, analyticsApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { fmt, fmtDate, CATEGORY_ICONS } from '../utils/helpers';
@@ -11,6 +11,7 @@ import MemberContribChart from '../components/charts/MemberContribChart';
 import BalanceBarChart from '../components/charts/BalanceBarChart';
 import AddExpenseModal from '../components/modals/AddExpenseModal';
 import SettleUpModal from '../components/modals/SettleUpModal';
+import ConfirmModal from '../components/modals/ConfirmModal';
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -18,12 +19,18 @@ export default function GroupDetailPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const qc = useQueryClient();
+
+  // Modal / UI state
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
+  const [showDeleteGroup, setShowDeleteGroup] = useState(false);
+  const [showLeaveGroup, setShowLeaveGroup] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<number | null>(null);
   const [addMemberEmail, setAddMemberEmail] = useState('');
   const [addMemberMsg, setAddMemberMsg] = useState('');
   const [tab, setTab] = useState<'expenses' | 'balances' | 'stats'>('expenses');
 
+  // ── Queries ─────────────────────────────────────────────────────────────────
   const { data: group, isLoading } = useQuery({ queryKey: ['group', groupId], queryFn: () => groupsApi.get(groupId) });
   const { data: expenses = [] } = useQuery({ queryKey: ['expenses', groupId], queryFn: () => expensesApi.byGroup(groupId) });
   const { data: balances } = useQuery({ queryKey: ['balances', groupId], queryFn: () => groupsApi.balances(groupId) });
@@ -31,14 +38,21 @@ export default function GroupDetailPage() {
   const { data: monthly = [] } = useQuery({ queryKey: ['analytics', 'group', groupId, 'monthly'], queryFn: () => analyticsApi.groupMonthly(groupId) });
   const { data: memberContrib = [] } = useQuery({ queryKey: ['analytics', 'group', groupId, 'members'], queryFn: () => analyticsApi.groupMembers(groupId) });
 
+  // ── Mutations ────────────────────────────────────────────────────────────────
   const { mutate: deleteExpense } = useMutation({
     mutationFn: expensesApi.delete,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenses', groupId] }); qc.invalidateQueries({ queryKey: ['balances', groupId] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['expenses', groupId] });
+      qc.invalidateQueries({ queryKey: ['balances', groupId] });
+    },
   });
 
   const { mutate: deleteSettlement } = useMutation({
     mutationFn: settlementsApi.delete,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settlements', groupId] }); qc.invalidateQueries({ queryKey: ['balances', groupId] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settlements', groupId] });
+      qc.invalidateQueries({ queryKey: ['balances', groupId] });
+    },
   });
 
   const { mutate: addMember, isPending: addingMember } = useMutation({
@@ -49,11 +63,54 @@ export default function GroupDetailPage() {
       qc.invalidateQueries({ queryKey: ['group', groupId] });
       setTimeout(() => setAddMemberMsg(''), 3000);
     },
-    onError: (e: any) => setAddMemberMsg(`Error: ${e}`),
+    onError: (e: any) => setAddMemberMsg(`⚠ ${e}`),
   });
 
+  const { mutate: deleteGroup, isPending: deletingGroup } = useMutation({
+    mutationFn: () => groupsApi.delete(groupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      navigate('/groups');
+    },
+  });
+
+  const { mutate: leaveGroup, isPending: leavingGroup } = useMutation({
+    mutationFn: () => groupsApi.leave(groupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['groups'] });
+      navigate('/groups');
+    },
+  });
+
+  const { mutate: removeMember, isPending: removingMember } = useMutation({
+    mutationFn: (userId: number) => groupsApi.removeMember(groupId, userId),
+    onSuccess: () => {
+      setRemovingMemberId(null);
+      qc.invalidateQueries({ queryKey: ['group', groupId] });
+      qc.invalidateQueries({ queryKey: ['balances', groupId] });
+    },
+    onError: (e: any) => alert(e),
+  });
+
+  // ── Derived state ────────────────────────────────────────────────────────────
+  const isCreator = group?.created_by === user?.id;
+  const myRole = group?.members.find(m => m.id === user?.id)?.role;
+  const isAdmin = myRole === 'admin';
   const myBalance = balances?.netBalances.find(b => b.user.id === user?.id);
 
+  const memberBeingRemoved = group?.members.find(m => m.id === removingMemberId);
+
+  const allActivity = [
+    ...expenses.map(e => ({ ...e, itemType: 'expense' as const })),
+    ...settlements.map(s => ({
+      ...s,
+      description: `${s.paid_by_name} paid ${s.paid_to_name}`,
+      itemType: 'settlement' as const,
+      category: 'settlement',
+    })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // ── Loading / not found ──────────────────────────────────────────────────────
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
@@ -61,19 +118,15 @@ export default function GroupDetailPage() {
   );
   if (!group) return <div className="text-center py-20 text-slate-500">Group not found</div>;
 
-  // Combine expenses and settlements for timeline
-  const allActivity = [
-    ...expenses.map(e => ({ ...e, itemType: 'expense' as const })),
-    ...settlements.map(s => ({ ...s, description: `${s.paid_by_name} paid ${s.paid_to_name}`, itemType: 'settlement' as const, category: 'settlement' }))
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
   return (
     <div className="space-y-6 animate-slide-up">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="flex items-start gap-4">
         <button onClick={() => navigate('/groups')} className="p-2 hover:bg-slate-100 rounded-xl transition-colors mt-1">
           <ArrowLeft size={20} className="text-slate-600" />
         </button>
+
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white text-xl font-bold"
@@ -86,7 +139,30 @@ export default function GroupDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex items-center gap-2">
+          {/* Leave group — visible to non-creator members */}
+          {!isCreator && (
+            <button
+              onClick={() => setShowLeaveGroup(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-slate-500 hover:text-amber-600 hover:bg-amber-50 border border-slate-200 hover:border-amber-200 text-sm font-medium transition-all"
+              title="Leave this group"
+            >
+              <LogOut size={15} /> Leave
+            </button>
+          )}
+
+          {/* Delete group — visible to creator only */}
+          {isCreator && (
+            <button
+              onClick={() => setShowDeleteGroup(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-slate-500 hover:text-red-600 hover:bg-red-50 border border-slate-200 hover:border-red-200 text-sm font-medium transition-all"
+              title="Delete this group"
+            >
+              <Trash2 size={15} /> Delete Group
+            </button>
+          )}
+
           <button onClick={() => setShowSettle(true)} className="btn-secondary flex items-center gap-2">
             <HandCoins size={16} /> Settle Up
           </button>
@@ -96,7 +172,7 @@ export default function GroupDetailPage() {
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* ── Stats row ── */}
       <div className="grid grid-cols-4 gap-4">
         <div className="card p-4 text-center">
           <p className="text-2xl font-bold text-slate-900">{fmt(group.total_spent || 0)}</p>
@@ -107,7 +183,7 @@ export default function GroupDetailPage() {
             {myBalance ? fmt(Math.abs(myBalance.balance)) : '$0.00'}
           </p>
           <p className="text-xs text-slate-500 mt-1">
-            {myBalance?.balance === 0 ? 'Settled up' : myBalance && myBalance.balance > 0 ? 'You are owed' : 'You owe'}
+            {!myBalance || myBalance.balance === 0 ? 'All settled' : myBalance.balance > 0 ? 'You are owed' : 'You owe'}
           </p>
         </div>
         <div className="card p-4 text-center">
@@ -121,8 +197,10 @@ export default function GroupDetailPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        {/* Main panel */}
+
+        {/* ── Main panel ── */}
         <div className="col-span-2 space-y-4">
+
           {/* Debt summary */}
           {balances?.transactions && balances.transactions.length > 0 && (
             <div className="card p-5">
@@ -163,6 +241,8 @@ export default function GroupDetailPage() {
             </div>
 
             <div className="p-5">
+
+              {/* Expenses tab */}
               {tab === 'expenses' && (
                 <div>
                   {allActivity.length === 0 ? (
@@ -186,9 +266,7 @@ export default function GroupDetailPage() {
                             <p className="text-sm font-medium text-slate-900 truncate">{item.description}</p>
                             <div className="flex items-center gap-2 mt-0.5">
                               {item.itemType === 'expense' && (
-                                <span className="text-xs text-slate-500">
-                                  Paid by {item.paid_by_name} · {fmtDate(item.date)}
-                                </span>
+                                <span className="text-xs text-slate-500">Paid by {item.paid_by_name} · {fmtDate(item.date)}</span>
                               )}
                               {item.itemType === 'settlement' && (
                                 <span className="text-xs text-indigo-500 font-medium">Settlement · {fmtDate(item.date)}</span>
@@ -205,7 +283,9 @@ export default function GroupDetailPage() {
                               </p>
                             )}
                           </div>
-                          {(item.itemType === 'expense' ? ((item as any).created_by === user?.id || (item as any).paid_by === user?.id) : (item as any).paid_by === user?.id) && (
+                          {(item.itemType === 'expense'
+                            ? ((item as any).created_by === user?.id || (item as any).paid_by === user?.id)
+                            : (item as any).paid_by === user?.id) && (
                             <button
                               onClick={() => item.itemType === 'expense' ? deleteExpense(item.id) : deleteSettlement(item.id)}
                               className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-400 transition-all rounded-lg hover:bg-red-50">
@@ -219,6 +299,7 @@ export default function GroupDetailPage() {
                 </div>
               )}
 
+              {/* Balances tab */}
               {tab === 'balances' && (
                 <div className="space-y-3">
                   {balances?.netBalances.map((b, i) => (
@@ -226,7 +307,9 @@ export default function GroupDetailPage() {
                       <Avatar name={b.user.name} color={b.user.avatar_color} size="sm" />
                       <span className="text-sm font-medium text-slate-700 flex-1">{b.user.name}</span>
                       <span className={`font-bold text-sm ${b.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {b.balance === 0 ? <span className="text-slate-400">settled</span> : (b.balance > 0 ? `+${fmt(b.balance)}` : fmt(b.balance))}
+                        {b.balance === 0
+                          ? <span className="text-slate-400">settled</span>
+                          : b.balance > 0 ? `+${fmt(b.balance)}` : fmt(b.balance)}
                       </span>
                     </div>
                   ))}
@@ -234,6 +317,7 @@ export default function GroupDetailPage() {
                 </div>
               )}
 
+              {/* Stats tab */}
               {tab === 'stats' && (
                 <div className="space-y-6">
                   <div>
@@ -250,44 +334,82 @@ export default function GroupDetailPage() {
           </div>
         </div>
 
-        {/* Sidebar */}
+        {/* ── Sidebar ── */}
         <div className="space-y-4">
-          {/* Members */}
+
+          {/* Members card */}
           <div className="card p-4">
-            <h3 className="font-semibold text-slate-900 mb-3">Members</h3>
-            <div className="space-y-2">
-              {group.members.map(m => (
-                <div key={m.id} className="flex items-center gap-3 py-1">
-                  <Avatar name={m.name} color={m.avatar_color} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
-                    <p className="text-xs text-slate-400 truncate">{m.email}</p>
+            <h3 className="font-semibold text-slate-900 mb-3">
+              Members <span className="text-slate-400 font-normal text-sm">({group.members.length})</span>
+            </h3>
+
+            <div className="space-y-1">
+              {group.members.map(m => {
+                const isGroupCreator = m.id === group.created_by;
+                const canRemove = isAdmin && !isGroupCreator && m.id !== user?.id;
+
+                return (
+                  <div key={m.id} className="group/member flex items-center gap-2.5 py-1.5 px-2 rounded-xl hover:bg-slate-50 transition-colors">
+                    <Avatar name={m.name} color={m.avatar_color} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-slate-800 truncate">{m.name}</p>
+                        {m.id === user?.id && <span className="text-xs text-slate-400">(you)</span>}
+                      </div>
+                      <p className="text-xs text-slate-400 truncate">{m.email}</p>
+                    </div>
+
+                    {isGroupCreator
+                      ? <span className="badge bg-indigo-50 text-indigo-600 text-xs flex-shrink-0">Creator</span>
+                      : m.role === 'admin'
+                        ? <span className="badge bg-indigo-50 text-indigo-600 text-xs flex-shrink-0">Admin</span>
+                        : null}
+
+                    {/* Remove button — admins only, not for creator or self */}
+                    {canRemove && (
+                      <button
+                        onClick={() => setRemovingMemberId(m.id)}
+                        className="opacity-0 group-hover/member:opacity-100 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all flex-shrink-0"
+                        title={`Remove ${m.name}`}
+                      >
+                        <UserX size={15} />
+                      </button>
+                    )}
                   </div>
-                  {m.role === 'admin' && <span className="badge bg-indigo-50 text-indigo-600">Admin</span>}
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Add member */}
-            <div className="mt-3 pt-3 border-t border-slate-100">
-              <div className="flex gap-2">
-                <input className="input text-xs" placeholder="Email to invite" value={addMemberEmail}
-                  onChange={e => setAddMemberEmail(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addMember(addMemberEmail))} />
-                <button onClick={() => addMember(addMemberEmail)} disabled={addingMember || !addMemberEmail}
-                  className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors disabled:opacity-50">
-                  <UserPlus size={16} />
-                </button>
+            {isAdmin && (
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="flex gap-2">
+                  <input
+                    className="input text-xs"
+                    placeholder="Invite by email…"
+                    value={addMemberEmail}
+                    onChange={e => setAddMemberEmail(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addMember(addMemberEmail))}
+                  />
+                  <button
+                    onClick={() => addMember(addMemberEmail)}
+                    disabled={addingMember || !addMemberEmail.trim()}
+                    className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                    title="Add member"
+                  >
+                    <UserPlus size={16} />
+                  </button>
+                </div>
+                {addMemberMsg && (
+                  <p className={`text-xs mt-1.5 ${addMemberMsg.startsWith('⚠') ? 'text-red-500' : 'text-emerald-600'}`}>
+                    {addMemberMsg}
+                  </p>
+                )}
               </div>
-              {addMemberMsg && (
-                <p className={`text-xs mt-1.5 ${addMemberMsg.startsWith('Error') ? 'text-red-500' : 'text-emerald-600'}`}>
-                  {addMemberMsg}
-                </p>
-              )}
-            </div>
+            )}
           </div>
 
-          {/* Settled transactions */}
+          {/* Settlements */}
           {settlements.length > 0 && (
             <div className="card p-4">
               <h3 className="font-semibold text-slate-900 mb-3">Settlements</h3>
@@ -307,8 +429,54 @@ export default function GroupDetailPage() {
         </div>
       </div>
 
-      <AddExpenseModal open={showAddExpense} onClose={() => setShowAddExpense(false)} groupId={groupId} members={group.members} />
-      <SettleUpModal open={showSettle} onClose={() => setShowSettle(false)} groupId={groupId} transactions={balances?.transactions || []} />
+      {/* ── Modals ── */}
+      <AddExpenseModal
+        open={showAddExpense}
+        onClose={() => setShowAddExpense(false)}
+        groupId={groupId}
+        members={group.members}
+      />
+      <SettleUpModal
+        open={showSettle}
+        onClose={() => setShowSettle(false)}
+        groupId={groupId}
+        transactions={balances?.transactions || []}
+      />
+
+      {/* Delete group confirm */}
+      <ConfirmModal
+        open={showDeleteGroup}
+        onClose={() => setShowDeleteGroup(false)}
+        onConfirm={() => deleteGroup()}
+        title="Delete Group"
+        message={`Are you sure you want to delete "${group.name}"? All expenses and settlement history will be permanently removed. This cannot be undone.`}
+        confirmLabel="Delete Group"
+        danger
+        loading={deletingGroup}
+      />
+
+      {/* Leave group confirm */}
+      <ConfirmModal
+        open={showLeaveGroup}
+        onClose={() => setShowLeaveGroup(false)}
+        onConfirm={() => leaveGroup()}
+        title="Leave Group"
+        message={`You will be removed from "${group.name}". Your past expenses will remain on record but you won't see this group anymore.`}
+        confirmLabel="Leave Group"
+        loading={leavingGroup}
+      />
+
+      {/* Remove member confirm */}
+      <ConfirmModal
+        open={removingMemberId !== null}
+        onClose={() => setRemovingMemberId(null)}
+        onConfirm={() => removingMemberId !== null && removeMember(removingMemberId)}
+        title="Remove Member"
+        message={`Remove ${memberBeingRemoved?.name ?? 'this member'} from "${group.name}"? Their past expenses stay on record.`}
+        confirmLabel="Remove Member"
+        danger
+        loading={removingMember}
+      />
     </div>
   );
 }
