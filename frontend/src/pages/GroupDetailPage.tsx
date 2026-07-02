@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, HandCoins, UserPlus, Trash2, ArrowRight, LogOut, Skull, UserX } from 'lucide-react';
+import { ArrowLeft, Plus, HandCoins, UserPlus, Trash2, Pencil, ArrowRight, LogOut, Skull, UserX } from 'lucide-react';
 import { groupsApi, expensesApi, settlementsApi, analyticsApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { fmt, fmtDate, CATEGORY_ICONS } from '../utils/helpers';
+import type { Expense } from '../types';
 import Avatar from '../components/Avatar';
 import MonthlyChart from '../components/charts/MonthlyChart';
 import MemberContribChart from '../components/charts/MemberContribChart';
@@ -22,6 +23,7 @@ export default function GroupDetailPage() {
 
   // Modal / UI state
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [showSettle, setShowSettle] = useState(false);
   const [showDeleteGroup, setShowDeleteGroup] = useState(false);
   const [showLeaveGroup, setShowLeaveGroup] = useState(false);
@@ -275,22 +277,31 @@ export default function GroupDetailPage() {
                           </div>
                           <div className="text-right">
                             <p className={`text-sm font-bold ${item.itemType === 'settlement' ? 'text-indigo-600' : 'text-slate-900'}`}>
-                              {fmt(item.amount)}
+                              {fmt(item.amount, (item as any).currency)}
                             </p>
                             {item.itemType === 'expense' && (item as any).splits && (
                               <p className="text-xs text-slate-400">
-                                your share: {fmt((item as any).splits.find((s: any) => s.user_id === user?.id)?.amount || 0)}
+                                your share: {fmt((item as any).splits.find((s: any) => s.user_id === user?.id)?.amount || 0, (item as any).currency)}
                               </p>
                             )}
                           </div>
                           {(item.itemType === 'expense'
                             ? ((item as any).created_by === user?.id || (item as any).paid_by === user?.id)
                             : (item as any).paid_by === user?.id) && (
-                            <button
-                              onClick={() => item.itemType === 'expense' ? deleteExpense(item.id) : deleteSettlement(item.id)}
-                              className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-400 transition-all rounded-lg hover:bg-red-50">
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-all">
+                              {item.itemType === 'expense' && (
+                                <button
+                                  onClick={() => setEditingExpense(item as Expense)}
+                                  className="p-1.5 text-slate-300 hover:text-indigo-500 rounded-lg hover:bg-indigo-50">
+                                  <Pencil size={14} />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => item.itemType === 'expense' ? deleteExpense(item.id) : deleteSettlement(item.id)}
+                                className="p-1.5 text-slate-300 hover:text-red-400 rounded-lg hover:bg-red-50">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}
@@ -431,10 +442,11 @@ export default function GroupDetailPage() {
 
       {/* ── Modals ── */}
       <AddExpenseModal
-        open={showAddExpense}
-        onClose={() => setShowAddExpense(false)}
+        open={showAddExpense || !!editingExpense}
+        onClose={() => { setShowAddExpense(false); setEditingExpense(null); }}
         groupId={groupId}
         members={group.members}
+        expense={editingExpense || undefined}
       />
       <SettleUpModal
         open={showSettle}

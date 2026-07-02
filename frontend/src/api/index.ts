@@ -42,6 +42,8 @@ export const expensesApi = {
     client.get<Expense[]>(`/expenses/group/${groupId}`).then(r => r.data),
   create: (data: Omit<Partial<Expense>, 'splits'> & { splits?: { user_id: number; amount: number }[] }) =>
     client.post<Expense>('/expenses', data).then(r => r.data),
+  update: (id: number, data: Omit<Partial<Expense>, 'splits'> & { splits?: { user_id: number; amount: number }[] }) =>
+    client.put<Expense>(`/expenses/${id}`, data).then(r => r.data),
   delete: (id: number) => client.delete(`/expenses/${id}`).then(r => r.data),
   suggestCategory: (description: string) =>
     client.get<{ category: string }>(`/expenses/suggest/category?description=${encodeURIComponent(description)}`).then(r => r.data),

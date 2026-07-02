@@ -105,6 +105,7 @@ export interface ActivityItem {
   type: 'expense' | 'settlement';
   description?: string;
   amount: number;
+  currency?: string;
   category?: string;
   date: string;
   group_id: number;

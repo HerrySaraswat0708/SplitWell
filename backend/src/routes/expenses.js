@@ -66,7 +66,7 @@ router.get('/:id', auth, async (req, res) => {
 
 // Create expense
 router.post('/', auth, async (req, res) => {
-  const { group_id, description, amount, paid_by, category, split_type, date, notes, splits } = req.body;
+  const { group_id, description, amount, currency, paid_by, category, split_type, date, notes, splits } = req.body;
 
   if (!group_id || !description || !amount || !paid_by || !date)
     return res.status(400).json({ error: 'group_id, description, amount, paid_by and date are required' });
@@ -77,8 +77,8 @@ router.post('/', auth, async (req, res) => {
   const detectedCategory = category || detectCategory(description);
 
   const { id: expenseId } = await db.get(
-    'INSERT INTO expenses (group_id, description, amount, paid_by, category, split_type, date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-    [group_id, description, parseFloat(amount), parseInt(paid_by), detectedCategory, split_type || 'equal', date, notes || '', req.user.id]
+    'INSERT INTO expenses (group_id, description, amount, currency, paid_by, category, split_type, date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+    [group_id, description, parseFloat(amount), currency || 'USD', parseInt(paid_by), detectedCategory, split_type || 'equal', date, notes || '', req.user.id]
   );
 
   // Process splits
@@ -98,6 +98,45 @@ router.post('/', auth, async (req, res) => {
   }
 
   res.status(201).json(await getExpenseWithSplits(expenseId));
+});
+
+// Update expense
+router.put('/:id', auth, async (req, res) => {
+  const existing = await db.get('SELECT * FROM expenses WHERE id = ?', [req.params.id]);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  if (existing.created_by !== req.user.id && existing.paid_by !== req.user.id)
+    return res.status(403).json({ error: 'Not authorized' });
+
+  const { description, amount, currency, paid_by, category, split_type, date, notes, splits } = req.body;
+
+  if (!description || !amount || !paid_by || !date)
+    return res.status(400).json({ error: 'description, amount, paid_by and date are required' });
+
+  const detectedCategory = category || detectCategory(description);
+
+  await db.run(
+    'UPDATE expenses SET description = ?, amount = ?, currency = ?, paid_by = ?, category = ?, split_type = ?, date = ?, notes = ? WHERE id = ?',
+    [description, parseFloat(amount), currency || 'USD', parseInt(paid_by), detectedCategory, split_type || 'equal', date, notes || '', req.params.id]
+  );
+
+  // Re-process splits from scratch
+  await db.run('DELETE FROM expense_splits WHERE expense_id = ?', [req.params.id]);
+
+  if (splits && Array.isArray(splits)) {
+    for (const s of splits) {
+      await db.run('INSERT INTO expense_splits (expense_id, user_id, amount) VALUES (?, ?, ?)',
+        [req.params.id, s.user_id, parseFloat(s.amount)]);
+    }
+  } else {
+    const members = await db.all('SELECT user_id FROM group_members WHERE group_id = ?', [existing.group_id]);
+    const share = parseFloat((amount / members.length).toFixed(2));
+    for (const m of members) {
+      await db.run('INSERT INTO expense_splits (expense_id, user_id, amount) VALUES (?, ?, ?)',
+        [req.params.id, m.user_id, share]);
+    }
+  }
+
+  res.json(await getExpenseWithSplits(req.params.id));
 });
 
 // Delete expense

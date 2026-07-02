@@ -137,7 +137,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className={`text-sm font-bold ${item.type === 'settlement' ? 'text-emerald-600' : 'text-slate-900'}`}>
-                    {item.type === 'settlement' ? '+' : ''}{fmt(item.amount)}
+                    {item.type === 'settlement' ? '+' : ''}{fmt(item.amount, item.currency)}
                   </p>
                   <p className="text-xs text-slate-400">{fmtDate(item.date)}</p>
                 </div>

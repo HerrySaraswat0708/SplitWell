@@ -101,7 +101,7 @@ router.get('/group/:groupId/members', auth, async (req, res) => {
 // Recent activity for dashboard
 router.get('/recent', auth, async (req, res) => {
   const expenses = await db.all(`
-    SELECT e.id, e.description, e.amount, e.category, e.date, e.group_id,
+    SELECT e.id, e.description, e.amount, e.currency, e.category, e.date, e.group_id,
       g.name as group_name, u.name as paid_by_name, u.avatar_color as paid_by_color,
       'expense' as type
     FROM expenses e
