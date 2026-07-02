@@ -78,36 +78,67 @@ function emailHtml(name, verifyUrl) {
 </body></html>`;
 }
 
+// Render (and most free-tier hosts) block outbound SMTP ports to fight spam
+// abuse, so SMTP only works reliably from local dev. Resend's HTTP API isn't
+// blocked since it's just a normal HTTPS request.
+async function sendViaResend(user, verifyUrl) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'Splitwell <onboarding@resend.dev>',
+      to: user.email,
+      subject: 'Verify your Splitwell account',
+      html: emailHtml(user.name, verifyUrl),
+      text: `Hi ${user.name},\n\nVerify your Splitwell account:\n${verifyUrl}\n\nLink expires in 24 hours.`,
+    }),
+  });
+  if (!res.ok) throw new Error(`Resend API error ${res.status}: ${await res.text()}`);
+  console.log(`📧 Verification email sent to ${user.email} via Resend`);
+}
+
 async function sendVerificationEmail(user, token) {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const verifyUrl = `${frontendUrl}/verify-email?token=${token}`;
 
-  const transport = await getTransporter();
-
-  if (!transport) {
-    // Pure console fallback — zero setup needed
-    console.log('\n──────────────────────────────────────────────────────');
-    console.log('📧  VERIFICATION LINK  (no working SMTP — dev fallback)');
-    console.log(`    To:   ${user.email}`);
-    console.log(`    Link: ${verifyUrl}`);
-    console.log('──────────────────────────────────────────────────────\n');
-    return;
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await sendViaResend(user, verifyUrl);
+      return;
+    } catch (err) {
+      console.error('❌ Resend send failed:', err.message);
+    }
+  } else {
+    const transport = await getTransporter();
+    if (transport) {
+      try {
+        const from = process.env.SMTP_FROM || `Splitwell <${process.env.SMTP_USER}>`;
+        const info = await transport.sendMail({
+          from,
+          to: user.email,
+          subject: 'Verify your Splitwell account',
+          html: emailHtml(user.name, verifyUrl),
+          text: `Hi ${user.name},\n\nVerify your Splitwell account:\n${verifyUrl}\n\nLink expires in 24 hours.`,
+        });
+        console.log(`📧 Verification email sent to ${user.email}`);
+        const preview = nodemailer.getTestMessageUrl(info);
+        if (preview) console.log(`   Preview: ${preview}`);
+        return;
+      } catch (err) {
+        console.error('❌ SMTP send failed:', err.message);
+      }
+    }
   }
 
-  const from = process.env.SMTP_FROM || `Splitwell <${process.env.SMTP_USER}>`;
-
-  const info = await transport.sendMail({
-    from,
-    to: user.email,
-    subject: 'Verify your Splitwell account',
-    html: emailHtml(user.name, verifyUrl),
-    text: `Hi ${user.name},\n\nVerify your Splitwell account:\n${verifyUrl}\n\nLink expires in 24 hours.`,
-  });
-
-  console.log(`📧 Verification email sent to ${user.email}`);
-  // Print Ethereal preview URL when using test accounts
-  const preview = nodemailer.getTestMessageUrl(info);
-  if (preview) console.log(`   Preview: ${preview}`);
+  // Pure console fallback — zero setup needed
+  console.log('\n──────────────────────────────────────────────────────');
+  console.log('📧  VERIFICATION LINK  (no working email service — dev fallback)');
+  console.log(`    To:   ${user.email}`);
+  console.log(`    Link: ${verifyUrl}`);
+  console.log('──────────────────────────────────────────────────────\n');
 }
 
 module.exports = { sendVerificationEmail };

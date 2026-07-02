@@ -15,15 +15,5 @@ services:
         generateValue: true
       - key: FRONTEND_URL
         value: https://splitwell.onrender.com   # Render replaces this with real URL
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_SECURE
-        value: "false"
-      - key: SMTP_USER
-        value: saraswatherry@gmail.com
-      - key: SMTP_PASS
-        sync: false           # you will paste the app password in Render dashboard
-      - key: SMTP_FROM
-        value: "Splitwell <saraswatherry+noreply@gmail.com>"
+      - key: RESEND_API_KEY
+        sync: false           # Render blocks outbound SMTP on the free tier — paste your Resend API key here instead
