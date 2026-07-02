@@ -1,11 +1,11 @@
 const db = require('../database');
 
-function calculateGroupBalances(groupId) {
-  const members = db.prepare(`
+async function calculateGroupBalances(groupId) {
+  const members = await db.all(`
     SELECT u.id, u.name, u.email, u.avatar_color
     FROM users u JOIN group_members gm ON u.id = gm.user_id
     WHERE gm.group_id = ?
-  `).all(groupId);
+  `, [groupId]);
 
   const memberMap = {};
   const net = {};
@@ -14,20 +14,20 @@ function calculateGroupBalances(groupId) {
     net[m.id] = 0;
   }
 
-  const splits = db.prepare(`
+  const splits = await db.all(`
     SELECT es.user_id, es.amount as share, e.paid_by
     FROM expense_splits es JOIN expenses e ON es.expense_id = e.id
     WHERE e.group_id = ?
-  `).all(groupId);
+  `, [groupId]);
 
   for (const s of splits) {
     net[s.user_id] = (net[s.user_id] || 0) - s.share;
     net[s.paid_by] = (net[s.paid_by] || 0) + s.share;
   }
 
-  const settlements = db.prepare(
-    'SELECT paid_by, paid_to, amount FROM settlements WHERE group_id = ?'
-  ).all(groupId);
+  const settlements = await db.all(
+    'SELECT paid_by, paid_to, amount FROM settlements WHERE group_id = ?', [groupId]
+  );
 
   for (const s of settlements) {
     net[s.paid_by] = (net[s.paid_by] || 0) + s.amount;
@@ -69,16 +69,16 @@ function simplifyDebts(net, memberMap) {
   return txns;
 }
 
-function getUserNetBalance(userId) {
-  const groups = db.prepare(`
+async function getUserNetBalance(userId) {
+  const groups = await db.all(`
     SELECT group_id FROM group_members WHERE user_id = ?
-  `).all(userId);
+  `, [userId]);
 
   let totalOwed = 0;
   let totalOwing = 0;
 
   for (const { group_id } of groups) {
-    const { netBalances } = calculateGroupBalances(group_id);
+    const { netBalances } = await calculateGroupBalances(group_id);
     const myBalance = netBalances.find(b => b.user.id === userId);
     if (myBalance) {
       if (myBalance.balance > 0) totalOwed += myBalance.balance;

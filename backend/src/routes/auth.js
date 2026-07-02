@@ -21,8 +21,8 @@ async function issueVerification(user) {
   const token = makeToken();
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   // Invalidate old unused tokens for this user
-  db.prepare('UPDATE verification_tokens SET used = 1 WHERE user_id = ? AND used = 0').run(user.id);
-  db.prepare('INSERT INTO verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expires);
+  await db.run('UPDATE verification_tokens SET used = 1 WHERE user_id = ? AND used = 0', [user.id]);
+  await db.run('INSERT INTO verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, token, expires]);
   await sendVerificationEmail(user, token);
 }
 
@@ -35,17 +35,18 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
   try {
-    if (db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase()))
+    if (await db.get('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]))
       return res.status(409).json({ error: 'Email already registered' });
 
     const password_hash = bcrypt.hashSync(password, 10);
     const avatar_color = COLORS[Math.floor(Math.random() * COLORS.length)];
 
-    const { lastInsertRowid: id } = db.prepare(
-      'INSERT INTO users (name, email, password_hash, avatar_color, email_verified) VALUES (?, ?, ?, ?, 0)'
-    ).run(name, email.toLowerCase(), password_hash, avatar_color);
+    const { id } = await db.get(
+      'INSERT INTO users (name, email, password_hash, avatar_color, email_verified) VALUES (?, ?, ?, ?, 0) RETURNING id',
+      [name, email.toLowerCase(), password_hash, avatar_color]
+    );
 
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [id]);
     const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
 
     // Send verification email (non-blocking — don't fail registration if mail fails)
@@ -59,13 +60,13 @@ router.post('/register', async (req, res) => {
 });
 
 // ── Login ─────────────────────────────────────────────────────────────────────
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password)
     return res.status(400).json({ error: 'Email and password are required' });
 
   try {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+    const user = await db.get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
     if (!user || !bcrypt.compareSync(password, user.password_hash))
       return res.status(401).json({ error: 'Invalid email or password' });
 
@@ -77,28 +78,28 @@ router.post('/login', (req, res) => {
 });
 
 // ── Me ────────────────────────────────────────────────────────────────────────
-router.get('/me', authMiddleware, (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+router.get('/me', authMiddleware, async (req, res) => {
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   res.json({ user: safeUser(user) });
 });
 
 // ── Verify email ──────────────────────────────────────────────────────────────
-router.get('/verify-email', (req, res) => {
+router.get('/verify-email', async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).json({ error: 'Token is required' });
 
-  const record = db.prepare(
-    'SELECT * FROM verification_tokens WHERE token = ? AND used = 0'
-  ).get(token);
+  const record = await db.get(
+    'SELECT * FROM verification_tokens WHERE token = ? AND used = 0', [token]
+  );
 
   if (!record) return res.status(400).json({ error: 'Invalid or already used verification link' });
   if (new Date(record.expires_at) < new Date())
     return res.status(400).json({ error: 'Verification link has expired. Please request a new one.' });
 
-  db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(record.user_id);
-  db.prepare('UPDATE verification_tokens SET used = 1 WHERE id = ?').run(record.id);
+  await db.run('UPDATE users SET email_verified = 1 WHERE id = ?', [record.user_id]);
+  await db.run('UPDATE verification_tokens SET used = 1 WHERE id = ?', [record.id]);
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(record.user_id);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [record.user_id]);
   const jwt_token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
 
   res.json({ message: 'Email verified successfully!', token: jwt_token, user: safeUser(user) });
@@ -106,13 +107,14 @@ router.get('/verify-email', (req, res) => {
 
 // ── Resend verification ───────────────────────────────────────────────────────
 router.post('/resend-verification', authMiddleware, async (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   if (user.email_verified) return res.status(400).json({ error: 'Email is already verified' });
 
   // Rate-limit: check if a token was issued in the last 2 minutes
-  const recent = db.prepare(
-    "SELECT id FROM verification_tokens WHERE user_id = ? AND used = 0 AND created_at > datetime('now', '-2 minutes')"
-  ).get(user.id);
+  const recent = await db.get(
+    "SELECT id FROM verification_tokens WHERE user_id = ? AND used = 0 AND created_at > NOW() - INTERVAL '2 minutes'",
+    [user.id]
+  );
   if (recent) return res.status(429).json({ error: 'Please wait a moment before requesting another email' });
 
   try {

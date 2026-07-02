@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const db = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -49,4 +50,9 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => console.log(`✓ Server running on http://localhost:${PORT}`));
+db.init()
+  .then(() => app.listen(PORT, () => console.log(`✓ Server running on http://localhost:${PORT}`)))
+  .catch(err => {
+    console.error('❌ Failed to connect to the database:', err.message);
+    process.exit(1);
+  });

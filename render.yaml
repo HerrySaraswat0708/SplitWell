@@ -9,8 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /data
+      - key: DATABASE_URL
+        sync: false           # paste your Neon/Supabase Postgres connection string in the Render dashboard
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URL
@@ -27,7 +27,3 @@ services:
         sync: false           # you will paste the app password in Render dashboard
       - key: SMTP_FROM
         value: "Splitwell <saraswatherry+noreply@gmail.com>"
-    disk:
-      name: splitwell-data
-      mountPath: /data
-      sizeGB: 1
